@@ -8,6 +8,6 @@ df = iris.frame
 
 # Save to CSV in data/ folder
 os.makedirs("data", exist_ok=True)
-df.to_csv("data/iris.csv", index=False)
+df.to_csv("data/Iris.csv", index=False)
 
 print("Saved preprocessed dataset to data/iris.csv")

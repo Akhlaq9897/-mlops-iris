@@ -1,0 +1,116 @@
+name: CI/CD Iris API
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  lint_test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[dev]
+
+      - name: Lint with ruff
+        run: |
+          ruff --version
+          ruff check .
+
+      - name: Run tests
+        run: |
+          pytest -q
+
+  build_and_push:
+    name: Build and Push Docker image
+    needs: lint_test
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/iris-api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_REPO }}
+          tags: |
+            type=sha,format=long
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: DockerFile
+          push: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.IMAGE_REPO }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_REPO }}:buildcache,mode=max
+
+      - name: Expose built image reference
+        id: image
+        run: echo "image=${{ env.IMAGE_REPO }}:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+
+  deploy:
+    name: Deploy (local or EC2)
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
+    env:
+      DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
+      APP_PORT: ${{ secrets.APP_PORT }}
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: chmod +rx scripts/deploy.sh
+
+      - name: Deploy locally with Docker
+        if: ${{ env.DEPLOY_TARGET == 'local' }}
+        env:
+          IMAGE: ${{ needs.build_and_push.outputs.image }}
+        run: |
+          bash scripts/deploy.sh local "$IMAGE" "${APP_PORT:-8000}"
+
+      - name: Deploy to EC2 over SSH
+        if: ${{ env.DEPLOY_TARGET == 'ec2' }}
+        env:
+          IMAGE: ${{ needs.build_and_push.outputs.image }}
+        run: |
+          bash scripts/deploy.sh ec2 "$IMAGE" "${APP_PORT:-8000}"
+
