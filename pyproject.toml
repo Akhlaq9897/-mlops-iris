@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlops-iris"
+version = "0.1.0"
+description = "MLOps Iris API and training pipeline"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "scikit-learn",
+  "joblib",
+  "pydantic",
+  "numpy",
+]
+
+[project.optional-dependencies]
+train = [
+  "pandas",
+  "mlflow",
+  "lightgbm",
+]
+dev = [
+  "pytest",
+  "ruff",
+  "httpx",
+  "fastapi[standard]",
+]
+
+[tool.setuptools]
+packages = []
+
