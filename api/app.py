@@ -10,7 +10,7 @@ import os
 nest_asyncio.apply()
 
 # Load model
-MODEL_PATH = "models/random_forest_model.pkl"
+MODEL_PATH = "models/random_forest_model.pkl" #loading random forest as it performed better
 if not os.path.exists(MODEL_PATH):
     raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
 
