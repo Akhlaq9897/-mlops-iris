@@ -1,48 +1,56 @@
+import nest_asyncio
+import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
 import joblib
-import numpy as np
+import pandas as pd
 import os
 
-app = FastAPI()
+# Patch asyncio for Jupyter
+nest_asyncio.apply()
 
-# Lazy-load the trained model so the container can start without the artifact
-_model = None
+# Load model
+MODEL_PATH = "models/random_forest_model.pkl"
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
 
+rf_model = joblib.load(MODEL_PATH)
 
-def get_model():
-    global _model
-    if _model is None:
-        model_path = os.getenv("MODEL_PATH", "models/lightgbm_model.pkl")
-        _model = joblib.load(model_path)
-    return _model
+# Get feature names from training
+try:
+    FEATURE_COLUMNS = rf_model.feature_names_in_.tolist()
+except AttributeError:
+    FEATURE_COLUMNS = ["sepal_length", "sepal_width", "petal_length", "petal_width"]
 
-# Define input schema
+# FastAPI app
+app = FastAPI(
+    title="Iris RandomForest API",
+    description="Predict Iris species using RandomForest model",
+    version="1.0"
+)
+
+# Match your JSON input exactly
 class IrisInput(BaseModel):
     sepal_length: float
     sepal_width: float
     petal_length: float
     petal_width: float
-    
-    class Config:
-        json_schema_extra = {
-            "examples": [
-                {
-                    "sepal_length": 6.7,
-                    "sepal_width": 3.1,
-                    "petal_length": 4.7,
-                    "petal_width": 1.5
-                }
-            ]
-        }
+
+@app.get("/")
+def home():
+    return {"message": "Iris API is running"}
 
 @app.post("/predict")
-def predict(input: IrisInput):
-    features = np.array([[input.sepal_length, input.sepal_width,
-                          input.petal_length, input.petal_width]])
-    prediction = get_model().predict(features)[0]
-    return {"prediction": int(prediction)}
+def predict(input_data: IrisInput):
+    df = pd.DataFrame([[
+        input_data.sepal_length,
+        input_data.sepal_width,
+        input_data.petal_length,
+        input_data.petal_width
+    ]], columns=FEATURE_COLUMNS)
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    prediction = rf_model.predict(df)[0]
+    return {"prediction": str(prediction)}
+
+# Run inside Jupyter
+uvicorn.run(app, host="127.0.0.1", port=7860)
